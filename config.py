@@ -1,8 +1,18 @@
 #AudioMuse-AI/config.py
 import os
 
+# --- Task Status Constants ---
+# These are used across the application for task tracking. Placed here so they're
+# available everywhere without creating import chains.
+TASK_STATUS_PENDING = 'PENDING'
+TASK_STATUS_STARTED = 'STARTED'
+TASK_STATUS_PROGRESS = 'PROGRESS'
+TASK_STATUS_SUCCESS = 'SUCCESS'
+TASK_STATUS_FAILURE = 'FAILURE'
+TASK_STATUS_REVOKED = 'REVOKED'
+
 # --- Media Server Type ---
-MEDIASERVER_TYPE = os.environ.get("MEDIASERVER_TYPE", "jellyfin").lower() # Possible values: jellyfin, navidrome, lyrion, mpd, emby
+MEDIASERVER_TYPE = os.environ.get("MEDIASERVER_TYPE", "jellyfin").lower() # Possible values: jellyfin, navidrome, lyrion, emby
 
 # --- Jellyfin and DB Constants (Read from Environment Variables first) ---
 
@@ -98,16 +108,8 @@ SETUP_BOOTSTRAP_EXCLUDED_KEYS = {
     'LYRICS_INSTRUMENTAL_AXIS_FILL',
 }
 
-# --- MPD (Music Player Daemon) Constants ---
-# These are used only if MEDIASERVER_TYPE is "mpd".
-MPD_HOST = os.environ.get("MPD_HOST", "localhost")
-MPD_PORT = int(os.environ.get("MPD_PORT", "6600"))
-MPD_PASSWORD = os.environ.get("MPD_PASSWORD", "")  # Optional password, leave empty if none
-MPD_MUSIC_DIRECTORY = os.environ.get("MPD_MUSIC_DIRECTORY", "/var/lib/mpd/music")  # Path to MPD's music directory for file access
-
-
 # --- General Constants (Read from Environment Variables where applicable) ---
-APP_VERSION = "v2.1.2"
+APP_VERSION = "v2.2.0"
 MAX_DISTANCE = float(os.environ.get("MAX_DISTANCE", "0.5"))
 MAX_SONGS_PER_CLUSTER = int(os.environ.get("MAX_SONGS_PER_CLUSTER", "0"))
 MAX_SONGS_PER_ARTIST = int(os.getenv("MAX_SONGS_PER_ARTIST", "3")) # Max songs per artist in similarity results and clustering
@@ -126,6 +128,11 @@ ENABLE_CLUSTERING_EMBEDDINGS = os.environ.get("ENABLE_CLUSTERING_EMBEDDINGS", "T
 
 # --- GPU Acceleration for Clustering (Optional, requires NVIDIA GPU and RAPIDS cuML) ---
 USE_GPU_CLUSTERING = os.environ.get("USE_GPU_CLUSTERING", "False").lower() == "true"
+
+# --- Clustering Cleanup Behavior ---
+# When True (default), existing '_automatic' playlists are deleted before new clusters are created.
+# Set to False to preserve old automatic playlists when running clustering.
+CLUSTERING_CLEANING = os.environ.get("CLUSTERING_CLEANING", "True").lower() == "true"
 
 # --- DBSCAN Only Constants (Ranges for Evolutionary Approach) ---
 # Default ranges for DBSCAN parameters
@@ -306,6 +313,8 @@ QUEUE_TYPE = os.environ.get("QUEUE_TYPE", "redis").lower()
 APP_DATA_DIR = os.environ.get("APP_DATA_DIR", "")
 AUDIOMUSE_PLATFORM = os.environ.get("AUDIOMUSE_PLATFORM", "").lower()
 AUDIOMUSE_CONTROL_SOCKET = os.environ.get("AUDIOMUSE_CONTROL_SOCKET", "")
+AUDIOMUSE_CONTROL_HOST = os.environ.get("AUDIOMUSE_CONTROL_HOST", "")
+AUDIOMUSE_CONTROL_PORT = os.environ.get("AUDIOMUSE_CONTROL_PORT", "")
 
 # --- AI User for Chat SQL Execution ---
 AI_CHAT_DB_USER_NAME = os.environ.get("AI_CHAT_DB_USER_NAME", "ai_user")
@@ -575,11 +584,23 @@ TEMPO_MIN_BPM = float(os.getenv("TEMPO_MIN_BPM", "40.0"))
 TEMPO_MAX_BPM = float(os.getenv("TEMPO_MAX_BPM", "200.0"))
 OTHER_FEATURE_LABELS = ['danceable', 'aggressive', 'happy', 'party', 'relaxed', 'sad']
 
-# Redis cache key for CLAP text embeddings of OTHER_FEATURE_LABELS
+# Voice vocabulary used in MCP system prompts
+VOICE_VOCAB = ["female vocalists", "female vocalist", "male vocalists"]
+
+# Fallback genre list used when library context has no top genres
+AI_FALLBACK_GENRES = (
+    "rock, pop, metal, jazz, electronic, dance, alternative, indie, punk, blues, "
+    "hard rock, heavy metal, hip-hop, funk, country, soul"
+)
+
+# Redis cache key for CLAP text embeddings
 CLAP_OTHER_FEATURES_REDIS_KEY = os.environ.get("CLAP_OTHER_FEATURES_REDIS_KEY", "audiomuse:clap_other_feature_text_embeddings")
 
 # --- Sonic Fingerprint Constants ---
 SONIC_FINGERPRINT_TOP_N_SONGS = int(os.environ.get("SONIC_FINGERPRINT_TOP_N_SONGS", "20"))
+# Max tracks a single album may contribute to the seed pool, so one large album
+# (e.g. a 100+ track DJ mix) cannot dominate the fingerprint — see issue #603.
+SONIC_FINGERPRINT_MAX_SONGS_PER_ALBUM = int(os.environ.get("SONIC_FINGERPRINT_MAX_SONGS_PER_ALBUM", "3"))
 SONIC_FINGERPRINT_NEIGHBORS = int(os.environ.get("SONIC_FINGERPRINT_NEIGHBORS", "100"))
 SONIC_FINGERPRINT_CRON_PLAYLIST_NAME = os.environ.get(
     "SONIC_FINGERPRINT_CRON_PLAYLIST_NAME",
@@ -614,6 +635,7 @@ SAMPLING_PERCENTAGE_CHANGE_PER_RUN = float(os.getenv("SAMPLING_PERCENTAGE_CHANGE
 # Threshold for considering songs as duplicates based on their distance in the vector space.
 # This helps catch identical songs with slightly different metadata (e.g., from different albums).
 DUPLICATE_DISTANCE_THRESHOLD_COSINE = float(os.getenv("DUPLICATE_DISTANCE_THRESHOLD_COSINE", "0.01"))
+DUPLICATE_DISTANCE_THRESHOLD_COSINE_LYRICS = float(os.getenv("DUPLICATE_DISTANCE_THRESHOLD_COSINE_LYRICS", "0.05"))
 DUPLICATE_DISTANCE_THRESHOLD_EUCLIDEAN = float(os.getenv("DUPLICATE_DISTANCE_THRESHOLD_EUCLIDEAN", "0.15"))
 DUPLICATE_DISTANCE_CHECK_LOOKBACK = int(os.getenv("DUPLICATE_DISTANCE_CHECK_LOOKBACK", "1"))
 
@@ -643,6 +665,17 @@ ENABLE_PROXY_FIX = os.environ.get("ENABLE_PROXY_FIX", "False").lower() == "true"
 MAX_SONGS_PER_ARTIST_PLAYLIST = int(os.environ.get("MAX_SONGS_PER_ARTIST_PLAYLIST", "5"))
 # Enable energy-arc shaping for playlist ordering (gentle start -> peak -> cool down)
 PLAYLIST_ENERGY_ARC = os.environ.get("PLAYLIST_ENERGY_ARC", "False").lower() == "true"
+
+# --- Instant Playlist AI Brainstorm ---
+AI_BRAINSTORM_SOUND_DESCRIPTIONS_MAX = int(os.environ.get("AI_BRAINSTORM_SOUND_DESCRIPTIONS_MAX", "3"))
+AI_BRAINSTORM_SEED_ARTISTS_MAX = int(os.environ.get("AI_BRAINSTORM_SEED_ARTISTS_MAX", "4"))
+AI_BRAINSTORM_USE_ARTIST_SEEDS = os.environ.get("AI_BRAINSTORM_USE_ARTIST_SEEDS", "true").lower() == "true"
+AI_BRAINSTORM_SIMILAR_ARTISTS_PER_SEED = int(os.environ.get("AI_BRAINSTORM_SIMILAR_ARTISTS_PER_SEED", "8"))
+AI_BRAINSTORM_LYRIC_THEMES_MAX = int(os.environ.get("AI_BRAINSTORM_LYRIC_THEMES_MAX", "2"))
+AI_BRAINSTORM_GENRE_SCORE_THRESHOLD = float(os.environ.get("AI_BRAINSTORM_GENRE_SCORE_THRESHOLD", "0.3"))
+AI_BRAINSTORM_POOL_FLOOR = int(os.environ.get("AI_BRAINSTORM_POOL_FLOOR", "40"))
+AI_BRAINSTORM_RELAX_YEAR_PAD = int(os.environ.get("AI_BRAINSTORM_RELAX_YEAR_PAD", "5"))
+
 # --- Authentication ---
 # Set all three to enable authentication. Leave any blank to disable (legacy mode).
 AUDIOMUSE_USER = os.environ.get("AUDIOMUSE_USER", "")
@@ -657,36 +690,41 @@ JWT_SECRET = os.environ.get("JWT_SECRET", "")
 # Default is True to preserve the current secure behavior.
 AUTH_ENABLED = os.environ.get("AUTH_ENABLED", "True").lower() == "true"
 
-try:
-    from tasks.setup_manager import SetupManager
-    _setup_manager = SetupManager()
-    worker_mode = os.environ.get('AUDIOMUSE_ROLE', '').lower() == 'worker'
-    if worker_mode:
-        if _setup_manager.config_table_exists():
-            _overrides = _setup_manager.get_raw_overrides(ensure_table=False)
+def _apply_db_overrides():
+    global HEADERS, refresh_config
+    try:
+        from tasks.setup_manager import SetupManager
+        _setup_manager = SetupManager()
+        worker_mode = os.environ.get('AUDIOMUSE_ROLE', '').lower() == 'worker'
+        if worker_mode:
+            if _setup_manager.config_table_exists():
+                _overrides = _setup_manager.get_raw_overrides(ensure_table=False)
+            else:
+                _overrides = {}
         else:
-            _overrides = {}
-    else:
-        _setup_manager.ensure_table()
-        _overrides = _setup_manager.get_raw_overrides()
-    _excluded_override_keys = globals().get('SETUP_BOOTSTRAP_EXCLUDED_KEYS', set())
-    for _key, _value in _overrides.items():
-        # Skip any keys that are explicitly excluded from overrides (Redis and Postgres)
-        if _key in _excluded_override_keys:
-            continue
-        # Read the value from the db and override the variable
-        if _key in globals():
-            globals()[_key] = _setup_manager.cast_value(globals()[_key], _value)
+            _setup_manager.ensure_table()
+            _overrides = _setup_manager.get_raw_overrides()
+        _excluded_override_keys = globals().get('SETUP_BOOTSTRAP_EXCLUDED_KEYS', set())
+        for _key, _value in _overrides.items():
+            # Skip any keys that are explicitly excluded from overrides (Redis and Postgres)
+            if _key in _excluded_override_keys:
+                continue
+            # Read the value from the db and override the variable
+            if _key in globals():
+                globals()[_key] = _setup_manager.cast_value(globals()[_key], _value)
 
-    HEADERS = _compute_headers()
+        HEADERS = _compute_headers()
 
-    def refresh_config():
-        """Reload the config module from the current database and environment."""
-        import importlib
-        import sys
-        importlib.reload(sys.modules[__name__])
-except Exception as _exc:
-    import logging
-    logging.getLogger(__name__).warning(f"Could not load config overrides from DB: {_exc}")
-    def refresh_config():
-        pass
+        def refresh_config():
+            """Reload the config module from the current database and environment."""
+            import importlib
+            import sys
+            importlib.reload(sys.modules[__name__])
+    except Exception as _exc:
+        import logging
+        logging.getLogger(__name__).warning(f"Could not load config overrides from DB: {_exc}")
+        def refresh_config():
+            pass
+
+
+_apply_db_overrides()

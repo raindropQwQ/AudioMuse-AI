@@ -266,7 +266,6 @@ def _load_text_model():
             provider_options=[p[1] for p in provider_options]
         )
         
-        active_provider = session.get_providers()[0]
         logger.info(f"✓ CLAP text model loaded successfully (~478MB)")
             
     except Exception as e:
@@ -325,9 +324,7 @@ def initialize_clap_audio_model():
         logger.info("✓ CLAP audio model initialized successfully (for music analysis)")
         return True
     except Exception as e:
-        logger.error(f"Failed to initialize CLAP audio model: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.exception(f"Failed to initialize CLAP audio model: {e}")
         return False
 
 
@@ -353,9 +350,7 @@ def initialize_clap_text_model():
         logger.info("✓ CLAP text model initialized successfully (for text search)")
         return True
     except Exception as e:
-        logger.error(f"Failed to initialize CLAP text model: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.exception(f"Failed to initialize CLAP text model: {e}")
         return False
 
 
@@ -688,9 +683,7 @@ def analyze_audio_file(audio_path: str) -> Tuple[Optional[np.ndarray], float, in
         return audio_embedding, duration_sec, num_segments
 
     except Exception as e:
-        logger.error(f"CLAP analysis failed for {audio_path}: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.exception(f"CLAP analysis failed for {audio_path}: {e}")
         comprehensive_memory_cleanup(force_cuda=True, reset_onnx_pool=True)
         return None, 0, 0
     finally:
@@ -753,9 +746,7 @@ def get_text_embedding(query_text: str) -> Optional[np.ndarray]:
         return text_embedding
         
     except Exception as e:
-        logger.error(f"Failed to get text embedding for '{query_text}': {e}")
-        import traceback
-        traceback.print_exc()
+        logger.exception(f"Failed to get text embedding for '{query_text}': {e}")
         return None
 
 
@@ -788,9 +779,7 @@ def get_text_embeddings_batch(query_texts: list) -> Optional[np.ndarray]:
         # Get text-only model for text search
         session = get_clap_text_model()
         tokenizer = get_tokenizer()
-        
-        batch_size = len(query_texts)
-        
+
         # Tokenize all texts at once (max_length=77 for CLAP)
         encoded = tokenizer(
             query_texts,
@@ -819,9 +808,7 @@ def get_text_embeddings_batch(query_texts: list) -> Optional[np.ndarray]:
         return text_embeddings
         
     except Exception as e:
-        logger.error(f"Failed to get batch text embeddings: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.exception(f"Failed to get batch text embeddings: {e}")
         return None
 
 
@@ -840,7 +827,7 @@ def is_clap_available() -> bool:
 # --- CLAP-based Other Features (replaces mood-specific ONNX models) ---
 
 def get_or_cache_other_feature_text_embeddings(redis_conn) -> Optional[dict]:
-    """Return CLAP text embeddings for OTHER_FEATURE_LABELS, cached in Redis.
+    """Return CLAP text embeddings for config.OTHER_FEATURE_LABELS, cached in Redis.
 
     This function now includes the same optimised caching strategy used in
     devel‑DCLAP:
@@ -887,7 +874,7 @@ def get_or_cache_other_feature_text_embeddings(redis_conn) -> Optional[dict]:
         logger.warning(f"Failed to read CLAP text embeddings from Redis: {e}")
     
     # Compute text embeddings for each label
-    logger.info(f"Computing CLAP text embeddings for OTHER_FEATURE_LABELS: {config.OTHER_FEATURE_LABELS}")
+    logger.info(f"Computing CLAP text embeddings for config.OTHER_FEATURE_LABELS: {config.OTHER_FEATURE_LABELS}")
     try:
         embeddings = get_text_embeddings_batch(config.OTHER_FEATURE_LABELS)
         if embeddings is None:
@@ -908,9 +895,7 @@ def get_or_cache_other_feature_text_embeddings(redis_conn) -> Optional[dict]:
             logger.warning(f"Failed to write text embeddings to Redis: {e}")
         return result
     except Exception as e:
-        logger.error(f"Failed to compute CLAP text embeddings for other features: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.exception(f"Failed to compute CLAP text embeddings for other features: {e}")
         return None
     finally:
         # Unload text model after computing (worker only needs audio model)

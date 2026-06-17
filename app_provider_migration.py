@@ -21,8 +21,10 @@ from flask import Blueprint, jsonify, render_template, request
 # App-level singletons (DB connection, Redis, RQ queues). Importing here keeps
 # the blueprint file self-contained — the rest of the app doesn't need to hand
 # anything in.
-from app_helper import get_db, redis_conn, rq_queue_high, validate_outbound_url
-from tasks.mediaserver_helper import detect_path_format as _detect_path_format
+from database import get_db
+from taskqueue import redis_conn, rq_queue_high
+from ssrf_guard import validate_outbound_url
+from tasks.mediaserver.helper import detect_path_format as _detect_path_format
 
 logger = logging.getLogger(__name__)
 
@@ -59,14 +61,14 @@ provider_probe = _LazyProbe()
 # Supported target providers (what the tool knows how to talk to)
 # ---------------------------------------------------------------------------
 
-_SUPPORTED_TARGETS = frozenset({'jellyfin', 'navidrome', 'emby', 'lyrion', 'mpd'})
+_SUPPORTED_TARGETS = frozenset({'jellyfin', 'navidrome', 'emby', 'lyrion'})
 
 
 # ---------------------------------------------------------------------------
 # SSRF guard for the user-supplied media-server URL. Delegates to the shared
-# ``app_helper.validate_outbound_url`` (allows LAN/loopback, blocks non-HTTP(S)
-# schemes and link-local/cloud-metadata). MPD targets carry no URL, so a missing
-# url is allowed and left to the downstream probe.
+# ``ssrf_guard.validate_outbound_url`` (allows LAN/loopback, blocks non-HTTP(S)
+# schemes and link-local/cloud-metadata). A missing url is allowed and left to
+# the downstream probe.
 # ---------------------------------------------------------------------------
 
 def _validate_probe_url(creds):
@@ -114,8 +116,7 @@ def _current_provider_creds():
     """Build a creds dict from ``config`` for the currently active provider.
 
     Returns ``(provider_type, creds_dict)`` or ``(None, {})`` when the
-    provider isn't one we can re-probe (e.g. MPD — its paths come from the
-    filesystem directly and don't need refreshing).
+    provider isn't one we can re-probe.
     """
     import config as cfg
     t = (getattr(cfg, 'MEDIASERVER_TYPE', '') or '').lower()
@@ -1481,7 +1482,6 @@ def matched_albums(session_id):
 
     dry = state.get('dry_run') or {}
     auto_matches     = dry.get('matches') or {}
-    match_tiers      = dry.get('match_tiers') or {}
     manual_matches   = state.get('manual_matches') or {}
     manual_unmatches = set(state.get('manual_unmatches') or [])
     new_meta         = state.get('new_meta') or {}
@@ -1672,10 +1672,8 @@ def _load_state(session_id):
 
 
 def _sanitize_json_value(value):
-    """Wrapper kept for backward compatibility — delegates to the shared
-    sanitizer in :mod:`tasks.memory_utils`.
-    """
-    from tasks.memory_utils import sanitize_json_for_db
+    """Local alias for the shared JSON sanitizer in :mod:`sanitization`."""
+    from sanitization import sanitize_json_for_db
     return sanitize_json_for_db(value)
 
 

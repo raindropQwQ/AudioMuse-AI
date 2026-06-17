@@ -149,9 +149,6 @@ def fit_artist_gmm(artist_name: str, track_embeddings: List[np.ndarray]) -> Opti
         if n_samples < 5:
             logger.info(f"Artist '{artist_name}' has {n_samples} tracks - using each song as a GMM component with equal weights")
             
-            # Use a small fixed covariance for numerical stability
-            # This acts like narrow Gaussians centered on each actual song
-            fixed_variance = 0.01
             
             # Each song becomes one component with equal weight
             n_components = n_samples
@@ -539,7 +536,7 @@ def build_and_store_artist_index(db_conn=None):
                 num_parts = len(parts)
                 logger.info(f"Artist index size {len(index_bytes)} exceeds {ARTIST_INDEX_MAX_PART_SIZE_MB}MB - storing as {num_parts} segmented rows.")
 
-                insert_q = "INSERT INTO artist_index_data (index_name, index_data, artist_map_json, gmm_params_json, created_at) VALUES (%s, %s, %s, %s, NOW())"
+                insert_q = "INSERT INTO artist_index_data (index_name, index_data, artist_map_json, gmm_params_json, created_at) VALUES (%s, %s, %s, %s, NOW()) ON CONFLICT (index_name) DO UPDATE SET index_data = EXCLUDED.index_data, artist_map_json = EXCLUDED.artist_map_json, gmm_params_json = EXCLUDED.gmm_params_json, created_at = EXCLUDED.created_at"
                 for idx, part in enumerate(parts, start=1):
                     part_name = f"{ARTIST_INDEX_NAME}_{idx}_{num_parts}"
                     cur.execute(insert_q, (part_name, part, '', ''))
